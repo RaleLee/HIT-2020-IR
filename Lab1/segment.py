@@ -55,7 +55,7 @@ def seg(stopwords, needsegs, segor: Segmentor):
         title_words = list(segor.segment(title))
         dic["segmented_title"] = remove_stop_words(stopwords, title_words)
         para = dic.pop("paragraphs")
-        pattern = re.compile(r"(\n|\t)")
+        pattern = re.compile(r"([\n\t])")
         para = re.sub(pattern, "", para)
         parawords = list(segor.segment(para))
         dic["segmented_paragraphs"] = remove_stop_words(stopwords, parawords)
