@@ -2,17 +2,10 @@ import json
 import os
 from queue import Queue
 from threading import Thread
-from typing import Dict, Any, Union
-
 import requests
 import re
 
 from bs4 import BeautifulSoup
-
-HEADER = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/81.0.4044.129 Safari/537.36"
-}
 
 
 def build_path():
@@ -33,7 +26,6 @@ class Spider:
     """
     爬虫类
     """
-
     def __init__(self):
         self.queue = Queue()
         self.results = []
@@ -80,15 +72,12 @@ class Spider:
             for url in urls:
                 self.queue.put(url)
                 j.write(json.dumps(url, ensure_ascii=False) + "\n")
-        # with open("results/data.txt", "w", encoding="utf-8") as f:
-        #     for url in urls:
-        #         f.write(str(url) + "\n")
         return
 
     def craw(self):
         """
         提取网页正文及附件，返回一个字典对象
-        :return: results 字典对象
+        :return:
         """
         while not self.queue.empty():
             page = self.queue.get()
@@ -129,12 +118,20 @@ class Spider:
             self.results.append(page)
 
     def write_result(self):
+        """
+        将最终结果写入到文件中
+        :return:
+        """
         with open("results/full_data.json", "w", encoding="utf-8") as f:
             for page in self.results:
                 page.pop("index")
                 f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
     def run(self):
+        """
+        执行程序
+        :return:
+        """
         self.get_urls()
 
         ths = []
