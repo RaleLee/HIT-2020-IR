@@ -57,8 +57,6 @@ class Spider:
             li = soup.find_all('a')
             for url in li:
                 if "view" in url.attrs["href"]:
-                    # print(url)
-                    # assert isinstance(url, object)
                     aps.append(url)
         urls = []
         i = 0
@@ -76,7 +74,7 @@ class Spider:
 
     def craw(self):
         """
-        提取网页正文及附件，返回一个字典对象
+        提取网页正文及附件，json格式的字符串保存在results中
         :return:
         """
         while not self.queue.empty():
@@ -129,7 +127,7 @@ class Spider:
 
     def run(self):
         """
-        执行程序
+        执行程序，提供多线程支持
         :return:
         """
         self.get_urls()
