@@ -19,8 +19,8 @@ def get_stop_words():
     if not os.path.exists(path):
         print("No stop words file!")
         return
-    with open(path, "r", encoding="utf-8") as f:
-        stopwords.append(f.readline().strip())
+    for line in open(path, "r", encoding="utf-8"):
+        stopwords.append(line.strip())
     return stopwords
 
 
