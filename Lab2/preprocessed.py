@@ -94,6 +94,11 @@ def main():
 
 
 def search():
+    """
+    A naive search system.
+    Use BM25 search for a better accuracy.
+    :return:
+    """
     print("检索系统说明：")
     print("可以使用&&和||来连接不同的词，&&表示与，||表示或，只支持全&&或全||，不支持混合式")
     print("如果不使用连接，将会默认进行分词和采用全AND模式进行查询")
@@ -142,6 +147,10 @@ def search():
             print(res + ", ", end='')
         print(result[-1])
     return
+
+
+def BM25_search():
+    pass
 
 
 if __name__ == "__main__":

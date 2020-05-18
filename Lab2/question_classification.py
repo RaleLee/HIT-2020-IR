@@ -11,6 +11,8 @@ from pyltp import Segmentor
 TRAIN_DATA_PATH = 'question_classification/train_questions.txt'
 TEST_DATA_PATH = 'question_classification/test_questions.txt'
 QUESTION_CLASSIFICATION_PATH = 'question_classification'
+FINE_RESULT_PATH = 'question_classification/test_questions_fine_class.txt'
+ROUGH_RESULT_PATH = 'question_classification/test_questions_rough_class.txt'
 stop_words = []
 
 
@@ -42,32 +44,35 @@ def train_predict_naive_bayes():
     return right * 1.0 / n
 
 
-def train_predict_svm():
-    train_text, train_y = preprecess_data(True)
+def train_predict_svm(fine=True):
+    train_text, train_y = preprecess_data(True, fine)
     # count_vector = CountVectorizer()
-    count_vector = TfidfVectorizer()
+    # 发现单字的问题是token_pattern这个参数问题。它的默认值只匹配长度≥2的单词
+    # token_pattern这个参数使用正则表达式来分词，
+    # 其默认参数为r"(?u)\b\w\w+\b"，其中的两个\w决定了其匹配长度至少为2的单词，
+    # 所以这边减到1个。
+    count_vector = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b")
     train_data = count_vector.fit_transform(train_text)
 
-    clf = svm.SVC(C=10000.0, cache_size=200, class_weight=None, coef0=0.0,
-                  decision_function_shape=None, degree=3,
-                  gamma='auto', kernel='rbf', max_iter=-1,
-                  probability=False, random_state=None, shrinking=True, tol=1e-3, verbose=False)
+    if fine:
+        clf = svm.SVC(C=100.0, gamma=0.05)
+    else:
+        clf = svm.SVC(C=100.0, gamma=0.05)
     clf.fit(train_data, np.asarray(train_y))
 
-    test_text, test_y = preprecess_data(False)
+    test_text, test_y = preprecess_data(False, fine)
     test_data = count_vector.transform(test_text)
     result = clf.predict(test_data)
-    evaluate(np.asarray(test_y), result)
-    # calculate acc
-    n, right = 0, 0
-    for pred, real, text in zip(result, test_y, test_text):
-        n += 1
-        if pred == real:
-            right += 1
-        else:
-            print(str(pred) + " " + str(real) + " " + str(text))
+    score = clf.score(test_data, test_y)
+    print(score)
+    path = ROUGH_RESULT_PATH
+    if fine:
+        path = FINE_RESULT_PATH
 
-    return right * 1.0 / n
+    with open(path, 'w', encoding='utf-8') as f:
+        for pred, real, text in zip(result, test_y, test_text):
+            f.write("{}\t{}\t{}\n".format(pred, real, text))
+    return
 
 
 def evaluate(actual, pred):
@@ -79,7 +84,7 @@ def evaluate(actual, pred):
     print('f1:{0:0.3f}'.format(m_f1))
 
 
-def preprecess_data(train_mode=True):
+def preprecess_data(train_mode=True, fine=True, remove_stopwords=False):
     print("Initializing Segmentor!")
     segmentor = Segmentor()
     segmentor.load(cws_model_path)
@@ -92,14 +97,20 @@ def preprecess_data(train_mode=True):
     for line in open(path, 'r', encoding='utf-8'):
         tmp = line.split('\t')
         assert len(tmp) == 2, "Something wrong with the data!"
-        tag, question = tmp[0].split('_')[0], tmp[1]
-        # pred_words = remove_stop_words(list(segmentor.segment(question)))
-        pred_words = list(segmentor.segment(question))
+        if fine:
+            tag, question = tmp[0], tmp[1]
+        else:
+            tag, question = tmp[0].split('_')[0], tmp[1]
+        if remove_stopwords:
+            pred_words = remove_stop_words(list(segmentor.segment(question)))
+        else:
+            pred_words = list(segmentor.segment(question))
         seg_text = ''
         for word in pred_words:
             seg_text += word + ' '
         text.append(seg_text)
         y.append(tag)
+    segmentor.release()
     return text, y
 
 
@@ -135,8 +146,9 @@ def main():
     # get_stop_words()
     # rate = train_predict_naive_bayes()
     # print("acc: ", rate * 100, '%')
-    rate = train_predict_svm()
-    print("acc: ", rate * 100, '%')
+    train_predict_svm(True)
+    train_predict_svm(False)
+    # print("acc: ", rate * 100, '%')
 
 
 if __name__ == '__main__':
