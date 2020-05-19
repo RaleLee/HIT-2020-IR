@@ -6,9 +6,10 @@ import os
 from pyltp import Segmentor
 
 LTP_DATA_DIR = 'D:/Course/IR/ltp_data_v3.4.0'
-STOP_WORDS_PATH = "data/stopwords.txt"
-DATA_PATH = "data/passages_multi_sentences.json"
-INDEX_PATH = "data/index.txt"
+STOP_WORDS_PATH = 'data/stopwords.txt'
+DATA_PATH = 'data/passages_multi_sentences.json'
+INDEX_PATH = 'data/index.txt'
+SEG_DATA_PATH = 'data/seg_passages.json'
 cws_model_path = os.path.join(LTP_DATA_DIR, 'cws.model')
 stop_words = []
 word_dict = {}
@@ -75,7 +76,7 @@ def preprocess():
                 else:
                     word_dict[word].add(pid)
     print("Finish preprocess!")
-
+    segmentor.release()
     # write word_dict
     with open(INDEX_PATH, 'w', encoding='utf-8') as f:
         for k, v in word_dict.items():
@@ -153,5 +154,23 @@ def BM25_search():
     pass
 
 
+def make_seg_data():
+    print("Initializing Segmentor!")
+    segmentor = Segmentor()
+    segmentor.load(cws_model_path)
+    with open(SEG_DATA_PATH, 'w', encoding='utf-8') as f:
+        for line in open(DATA_PATH, 'r', encoding='utf-8'):
+            passage = json.loads(line)
+            pid = passage['pid']
+            if pid % 1000 == 0:
+                print(pid)
+            doc = passage['document']
+            passage['document'] = [' '.join(list(segmentor.segment(sen))) for sen in doc]
+            f.write(json.dumps(passage, ensure_ascii=False) + '\n')
+        print("Finish preprocess!")
+        segmentor.release()
+
+
 if __name__ == "__main__":
-    main()
+    make_seg_data()
+    # main()
