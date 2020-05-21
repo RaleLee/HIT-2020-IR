@@ -48,6 +48,7 @@ def remove_stop_words(text_words: list):
     return ret
 
 
+# noinspection PyArgumentList,PyArgumentList
 def preprocess():
     print("Finding existing index!")
     if os.path.exists(INDEX_PATH):
@@ -99,6 +100,7 @@ def main():
     search()
 
 
+# noinspection PyArgumentList
 def search():
     """
     A naive search system.
@@ -118,7 +120,6 @@ def search():
         if question == 'exit':
             print("Exit!")
             break
-        word_list = []
         and_mode = True
         if '&&' in question:
             word_list = question.split('&&')
@@ -155,6 +156,7 @@ def search():
     return
 
 
+# noinspection PyArgumentList
 def BM25_search(is_train=False):
     print("Initializing Segmentor!")
     segmentor = Segmentor()
@@ -204,6 +206,7 @@ def BM25_search(is_train=False):
                 f.write(json.dumps(passage, ensure_ascii=False) + '\n')
 
 
+# noinspection PyArgumentList,PyArgumentList
 def make_seg_data():
     print("Initializing Segmentor!")
     segmentor = Segmentor()

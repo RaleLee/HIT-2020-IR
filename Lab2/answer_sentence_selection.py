@@ -39,11 +39,8 @@ def generate_svm_rank_data(is_train=True):
     features = []
     for line in open(feature_path, 'r', encoding='utf-8'):
         features.append(line.strip().split(' '))
-    print(len(sentences))
-    print(len(features))
-    data = []
-    data_qid = []
-    qid_set = set()
+    assert len(sentences) == len(features), 'Something wrong!'
+    data, data_qid, qid_set = [], [], set()
     train_index = int(0.8 * float(5352))
     flag = False
     for k in range(len(sentences)):
@@ -74,6 +71,7 @@ def generate_svm_rank_data(is_train=True):
             f.writelines(data)
 
 
+# noinspection PyArgumentList
 def build_feature(is_train=True):
     """
 
@@ -134,13 +132,14 @@ def build_feature(is_train=True):
 
         # 提取 BM25 特征
         bm25_model = bm25.BM25(corpus)
-        q = list(segmentor.segment(item['question']))
-        scores = bm25_model.get_scores(q)
+        question = list(segmentor.segment(item['question']))
+        scores = bm25_model.get_scores(question)
 
         if is_train:
             for i in range(len(passage[item['pid']])):
                 ans_sent = passage[item['pid']][i]
-                feature_array = extract_feature(q, ans_sent, cv, tv, scores[i])
+                feature_array = extract_feature(question, ans_sent, cv, tv)
+                feature_array.append(scores[i])
                 feature.append(' '.join([str(attr) for attr in feature_array]) + '\n')
                 sen = {}
                 if passage_raw[item['pid']][i] in item['answer_sentence']:
@@ -153,7 +152,8 @@ def build_feature(is_train=True):
                 sents_json.append(sen)
         else:
             for i in range(len(sents)):
-                feature_array = extract_feature(q, sents[i], cv, tv, scores[i])
+                feature_array = extract_feature(question, sents[i], cv, tv)
+                feature_array.append(scores[i])
                 feature.append(' '.join([str(attr) for attr in feature_array]) + '\n')
                 sen = {'label': 0, 'qid': item['qid'], 'question': item['question'], 'answer': sents[i]}
                 sents_json.append(sen)
@@ -169,39 +169,36 @@ def build_feature(is_train=True):
     segmentor.release()
 
 
-def extract_feature(question, answer, cv, tv, bm25_score):
+def extract_feature(question, answer, cv, tv):
     """
     抽取句子的特征
     :param question: 问题
     :param answer: 答案
-    :param cv: count vector
-    :param tv: tfidf vector
-    :param bm25_score: bm25分数
+    :param cv: Count Vector
+    :param tv: Tf-idf Vector
     :return: 特征列表
     """
     feature = []
-    question_words = question
     answer_words = answer.split(' ')
-    # 特征1：答案句词数
-    feature.append(len(answer_words))
-    # 特征2：是否含冒号
+    len_answer, len_question = len(answer_words), len(question)
+    # 特征1:答案句词数
+    feature.append(len_answer)
+    # 特征2:是否含冒号
     feature.append(1) if '：' in answer else feature.append(0)
-    # 特征3：问句和答案句词数差异
-    feature.append(abs(len(question_words) - len(answer_words)))
-    # 特征4：unigram 词共现比例：答案句和问句中出现的相同词占问句总词数的比例
-    feature.append(len(set(question_words) & set(answer_words)) / float(len(set(question_words))))
-    # 特征5：字符共现比例:答案句和问句中出现的相同字符占问句的比例
+    # 特征3:问句和答案句词数差异
+    feature.append(abs(len_question - len_answer))
+    # 特征4:uni-gram词共现比例：答案句和问句中出现的相同词占问句总词数的比例, 该特征反应了两个句子在文本上的一致程度。
+    feature.append(len(set(question) & set(answer_words)) / float(len(set(question))))
+    # 特征5:字符共现比例:答案句和问句中出现的相同字符占问句的比例
     feature.append(len(set(question) & set(''.join(answer_words))) / float(len(set(question))))
     # 特征6：one hot 余弦相似度
-    vectors = cv.transform([' '.join(question_words), answer]).toarray()
+    vectors = cv.transform([' '.join(question), answer]).toarray()
     cosine_similar = np.dot(vectors[0], vectors[1]) / (norm(vectors[0]) * norm(vectors[1]))
     feature.append(cosine_similar if not np.isnan(cosine_similar) else 0.0)
     # 特征7：tf-idf 相似度
-    vectors = tv.transform([' '.join(question_words), answer]).toarray()
+    vectors = tv.transform([' '.join(question), answer]).toarray()
     tf_sim = np.dot(vectors[0], vectors[1]) / (norm(vectors[0]) * norm(vectors[1]))
     feature.append(tf_sim if not np.isnan(tf_sim) else 0)
-    # 特征8：bm25 评分
-    feature.append(bm25_score)
     return feature
 
 
@@ -267,15 +264,15 @@ def get_test_ans():
         predictions = np.array([float(line.strip()) for line in f.readlines()])
     print(len(predictions))
     # 读取sent json文件
-    with open(TEST_SENTENCE, 'r', encoding='utf-8') as fin:
-        items = [json.loads(line.strip()) for line in fin.readlines()]
+    with open(TEST_SENTENCE, 'r', encoding='utf-8') as f:
+        items = [json.loads(line.strip()) for line in f.readlines()]
     print(len(items))
     sent_qid = []
     for item in items:
         sent_qid.append(item['qid'])
     # 读取test res json文件
-    with open(SEARCH_RESULT, 'r', encoding='utf-8') as fin:
-        test_res = [json.loads(line.strip()) for line in fin.readlines()]
+    with open(SEARCH_RESULT, 'r', encoding='utf-8') as f:
+        test_res = [json.loads(line.strip()) for line in f.readlines()]
     for res in test_res:
         if res['qid'] not in sent_qid:
             res['answer_sentence'] = []
@@ -290,15 +287,38 @@ def get_test_ans():
             answer.append(items[i + s]['answer'])
         res['answer_sentence'] = answer
     # 写回文件
-    with open(TEST_RESULT, 'w', encoding='utf-8') as fout:
+    with open(TEST_RESULT, 'w', encoding='utf-8') as f:
         for sample in test_res:
-            fout.write(json.dumps(sample, ensure_ascii=False) + '\n')
+            f.write(json.dumps(sample, ensure_ascii=False) + '\n')
 
 
 if __name__ == '__main__':
+    """
+    运行说明：
+    前四行代码用于生成给SVM Rank来训练和预测的文件。
+    后面两行是计算mmr和生成本阶段的答案。
+    
+    要运行时，首先运行前四行代码，将后面两行代码注释；
+    然后在命令行中使用svm_rank_windows进行训练，
+    训练使用的命令：
+    ./svm_rank_learn -c 10.0  ../data/svm_train.txt model_10.dat
+    使用训练好的模型预测dev集：
+    ./svm_rank_classify ../data/svm_dev.txt model_10.dat ../data/dev_predictions
+    使用训练好的模型预测test集
+    ./svm_rank_classify ../data/svm_test.txt model_10.dat ../data/test_predictions
+    
+    得到test集上的结果之后，将前四行注释掉，运行后面两行代码。
+    得到mmr结果和候选答案句的选取，结果保存在test_answer_result.json中
+    
+    [0, 1, 2, 3, 5]prefect_correct:470, MRR:0.591683226004102
+    [0, 1, 2, 4, 5]prefect_correct:426, MRR:0.5643933064143644
+    [0, 1, 2, 3, 4, 5]prefect_correct:466, MRR:0.5895169264670681
+    [0, 1, 2, 3, 4, 5, 6, 7]prefect_correct:606, MRR:0.6986251509668727
+    """
     # build_feature()
     # generate_svm_rank_data()
     # build_feature(False)
     # generate_svm_rank_data(False)
+
     calc_mrr()
     get_test_ans()
