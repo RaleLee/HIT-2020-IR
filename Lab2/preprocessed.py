@@ -3,13 +3,18 @@
 
 import json
 import os
+import numpy as np
 from pyltp import Segmentor
+from gensim.summarization import bm25
 
 LTP_DATA_DIR = 'D:/Course/IR/ltp_data_v3.4.0'
 STOP_WORDS_PATH = 'data/stopwords.txt'
 DATA_PATH = 'data/passages_multi_sentences.json'
 INDEX_PATH = 'data/index.txt'
 SEG_DATA_PATH = 'data/seg_passages.json'
+TRAIN_DATA = 'data/train.json'
+TEST_DATA = 'data/test.json'
+SEARCH_RESULT = 'data/test_search_res1.json'
 cws_model_path = os.path.join(LTP_DATA_DIR, 'cws.model')
 stop_words = []
 word_dict = {}
@@ -150,8 +155,53 @@ def search():
     return
 
 
-def BM25_search():
-    pass
+def BM25_search(is_train=False):
+    print("Initializing Segmentor!")
+    segmentor = Segmentor()
+    segmentor.load(cws_model_path)
+    passages = []
+    for line in open(SEG_DATA_PATH, 'r', encoding='utf-8'):
+        passages.append(json.loads(line.strip()))
+    corpus = [' '.join(passage['document']).split(' ') for passage in passages]
+
+    bm25_model = bm25.BM25(corpus)
+
+    passages_raw = []
+    path = TRAIN_DATA if is_train else TEST_DATA
+    for line in open(path, 'r', encoding='utf-8'):
+        passages_raw.append(json.loads(line.strip()))
+
+    # test for bm25 search
+    if is_train:
+        pid_true, pid_predict = [], []
+        for passage in passages_raw:
+            question = remove_stop_words(list(segmentor.segment(passage['question'])))
+            scores = bm25_model.get_scores(question)
+            sorted_scores = np.argsort(-np.array(scores))
+            if sum(np.array(scores) != 0) > 0:
+                pid_predict.append([sorted_scores[0]])
+            else:
+                pid_predict.append([])
+        # evaluate
+        match, num = 0, len(pid_true)
+        for i in range(num):
+            if pid_true[i] in pid_predict[i]:
+                match += 1
+        acc = match * 1.0 / num
+        # 0.8707025411061285
+        print('acc: ' + str(acc))
+    else:
+        for passage in passages_raw:
+            question = remove_stop_words(list(segmentor.segment(passage['question'])))
+            scores = bm25_model.get_scores(question)
+            sorted_scores = np.argsort(-np.array(scores))
+            if sum(np.array(scores) != 0) > 0:
+                passage['answer_pid'] = [int(idx) for idx in sorted_scores[0:3]]
+            else:
+                passage['answer_pid'] = []
+        with open(SEARCH_RESULT, 'w', encoding='utf-8') as f:
+            for passage in passages_raw:
+                f.write(json.dumps(passage, ensure_ascii=False) + '\n')
 
 
 def make_seg_data():
@@ -172,5 +222,7 @@ def make_seg_data():
 
 
 if __name__ == "__main__":
-    make_seg_data()
+    # make_seg_data()
     # main()
+    get_stop_words()
+    BM25_search()

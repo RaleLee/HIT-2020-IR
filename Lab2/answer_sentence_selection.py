@@ -3,16 +3,14 @@ from gensim.summarization import bm25
 from scipy.linalg import norm
 import json
 from pyltp import Segmentor
-from preprocessed import cws_model_path
+from preprocessed import cws_model_path, TRAIN_DATA, SEARCH_RESULT
 import numpy as np
 
 RAW_PASSAGE_DATA = 'data/passages_multi_sentences.json'
 SEG_PASSAGE_DATA = 'data/seg_passages.json'
-TRAIN_DATA = 'data/train.json'
 RAW_FEATURE = 'data/feature.txt'
 RAW_SENTENCE = 'data/all_sentence.txt'
 TRAIN_BM25 = 'data/train_bm25.txt'
-SEARCH_RESULT = 'data/test_search_res.json'
 TEST_FEATURE = 'data/test_feature.txt'
 TEST_SENTENCE = 'data/test_sentence.txt'
 SVM_RANK_TRAIN_DATA = 'data/svm_train.txt'
@@ -24,28 +22,35 @@ SVM_RANK_TEST_RESULT = 'data/test_predictions'
 TEST_RESULT = 'data/test_answer_result.json'
 
 
-def gen_data_feature(is_train=True):
-    """生成 SVM Rank 格式的训练和测试数据
-    train:4281 dev:1071
+def generate_svm_rank_data(is_train=True):
     """
-    # 读取sent json文件
-    with open(RAW_SENTENCE, 'r', encoding='utf-8') as fin:
-        items = [json.loads(line.strip()) for line in fin.readlines()]
+    为SVM Rank生成训练和测试数据
+    :param is_train: 训练模式
+    :return:
+    """
+    if is_train:
+        sen_path, feature_path = RAW_SENTENCE, RAW_FEATURE
+    else:
+        sen_path, feature_path = TEST_SENTENCE, TEST_FEATURE
+    sentences = []
+    for line in open(sen_path, 'r', encoding='utf-8'):
+        sentences.append(json.loads(line.strip()))
     # 读取特征文件
-    with open(RAW_FEATURE, 'r', encoding='utf-8') as f:
-        feature_mat = [line.strip().split(' ') for line in f.readlines()]
-    print(len(items))
-    print(len(feature_mat))
+    features = []
+    for line in open(feature_path, 'r', encoding='utf-8'):
+        features.append(line.strip().split(' '))
+    print(len(sentences))
+    print(len(features))
     data = []
     data_qid = []
     qid_set = set()
     train_index = int(0.8 * float(5352))
     flag = False
-    for k in range(len(items)):
-        item = items[k]
+    for k in range(len(sentences)):
+        item = sentences[k]
         qid_set.add(item['qid'])
         # 写入训练集文件
-        if len(qid_set) >= train_index + 1 and flag is False:
+        if len(qid_set) >= train_index + 1 and is_train and flag is False:
             sort_index = np.argsort(data_qid)
             with open(SVM_RANK_TRAIN_DATA, 'w', encoding='utf-8') as f:
                 for j in range(len(sort_index)):
@@ -53,22 +58,27 @@ def gen_data_feature(is_train=True):
             flag = True
             data.clear()
             data_qid.clear()
-        feature_array = feature_mat[k]
+        feature_array = features[k]
         index = [0, 1, 2, 3, 4, 5, 6, 7]
         feature = ["{}:{}".format(j + 1, feature_array[index[j]]) for j in range(len(index))]
         data.append("{} qid:{} {}\n".format(item['label'], item['qid'], ' '.join(feature)))
         data_qid.append(item['qid'])
     # 写入开发集
-    sort_index = np.argsort(data_qid)
-    with open(SVM_RANK_DEV_DATA, 'w', encoding='utf-8') as f:
-        for j in range(len(sort_index)):
-            f.write(data[sort_index[j]])
+    if is_train:
+        sort_index = np.argsort(data_qid)
+        with open(SVM_RANK_DEV_DATA, 'w', encoding='utf-8') as f:
+            for j in range(len(sort_index)):
+                f.write(data[sort_index[j]])
+    else:
+        with open(SVM_RANK_TEST_DATA, 'w', encoding='utf-8') as f:
+            f.writelines(data)
 
 
 def build_feature(is_train=True):
     """
-    建立特征文件
-    q:5352, s:112055, avg(s/q):20.93703288490284, vocab:168611
+
+    :param is_train:
+    :return:
     """
     print("Initializing Segmentor!")
     segmentor = Segmentor()
@@ -97,15 +107,11 @@ def build_feature(is_train=True):
     # 建立特征矩阵
     feature = []
     sents_json = []
-    # sents = []
-    # for item in items:
-    #     sents += passage[item['pid']]
 
     for k in range(len(items)):
         item = items[k]
         sents, corpus = [], []
         if is_train:
-            # 建立词袋模型
             cv = CountVectorizer(token_pattern=r"(?u)\b\w+\b")
             cv.fit(passage[item['pid']])
             tv = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b")
@@ -128,7 +134,6 @@ def build_feature(is_train=True):
 
         # 提取 BM25 特征
         bm25_model = bm25.BM25(corpus)
-        # average_idf = sum(map(lambda k: float(bm25_model.idf[k]), bm25_model.idf.keys())) / len(bm25_model.idf.keys())
         q = list(segmentor.segment(item['question']))
         scores = bm25_model.get_scores(q)
 
@@ -165,7 +170,15 @@ def build_feature(is_train=True):
 
 
 def extract_feature(question, answer, cv, tv, bm25_score):
-    """ 抽取句子各种特征"""
+    """
+    抽取句子的特征
+    :param question: 问题
+    :param answer: 答案
+    :param cv: count vector
+    :param tv: tfidf vector
+    :param bm25_score: bm25分数
+    :return: 特征列表
+    """
     feature = []
     question_words = question
     answer_words = answer.split(' ')
@@ -175,8 +188,6 @@ def extract_feature(question, answer, cv, tv, bm25_score):
     feature.append(1) if '：' in answer else feature.append(0)
     # 特征3：问句和答案句词数差异
     feature.append(abs(len(question_words) - len(answer_words)))
-    # 特征4：编辑距离
-    # feature.append(distance.levenshtein(question, ''.join(answer_words)))
     # 特征4：unigram 词共现比例：答案句和问句中出现的相同词占问句总词数的比例
     feature.append(len(set(question_words) & set(answer_words)) / float(len(set(question_words))))
     # 特征5：字符共现比例:答案句和问句中出现的相同字符占问句的比例
@@ -195,7 +206,10 @@ def extract_feature(question, answer, cv, tv, bm25_score):
 
 
 def calc_mrr():
-    """ 计算排序结果的 MRR """
+    """
+    计算开发集上的完美匹配率 mrr
+    :return:
+    """
     # 读入排序结果
     with open(SVM_RANK_TRAIN_RESULT, 'r', encoding='utf-8') as f:
         predictions = np.array([float(line.strip()) for line in f.readlines()])
@@ -239,40 +253,15 @@ def calc_mrr():
             mrr += 1.0 / float(k + 1)
             break
     question_num += 1
-    print(
-        "question num:{}, question with answer{}, prefect_correct:{}, MRR:{}".format(question_num, question_with_answer,
-                                                                                     prefect_correct,
-                                                                                     mrr / question_num))
-
-
-def gen_test_data():
-    """生成测试数据
-    test 1978
-    """
-    # 读取sent json文件
-    with open(TEST_SENTENCE, 'r', encoding='utf-8') as fin:
-        items = [json.loads(line.strip()) for line in fin.readlines()]
-    # 读取特征文件
-    with open(TEST_FEATURE, 'r', encoding='utf-8') as f:
-        feature_mat = [line.strip().split(' ') for line in f.readlines()]
-    data = []
-    data_qid = []
-    qid_set = set()
-    for k in range(len(items)):
-        item = items[k]
-        qid_set.add(item['qid'])
-        feature_array = feature_mat[k]
-        index = [0, 1, 2, 3, 4, 5, 6, 7]
-        feature = ["{}:{}".format(j + 1, feature_array[index[j]]) for j in range(len(index))]
-        data.append("{} qid:{} {}\n".format(item['label'], item['qid'], ' '.join(feature)))
-        data_qid.append(item['qid'])
-    # 写入开发集
-    with open(SVM_RANK_TEST_DATA, 'w', encoding='utf-8') as f:
-        f.writelines(data)
+    print("question num:{}, question with answer{}, prefect_correct:{}, MRR:{}"
+          .format(question_num, question_with_answer, prefect_correct, mrr / question_num))
 
 
 def get_test_ans():
-    """ 根据SVM Rank 对test.json 的预测文件得到候选答案句"""
+    """
+    将SVM rank的结果转化为特征答案句
+    :return:
+    """
     # 读入排序结果
     with open(SVM_RANK_TEST_RESULT, 'r', encoding='utf-8') as f:
         predictions = np.array([float(line.strip()) for line in f.readlines()])
@@ -295,12 +284,7 @@ def get_test_ans():
         e = s
         while e < len(sent_qid) and sent_qid[e] == res['qid']:
             e += 1
-        # print(s)
-        # print(e)
-        # print(predictions[s:e])
         p = np.argsort(-predictions[s:e])
-        # print(p)
-        # print(len(p))
         answer = []
         for i in p[0:3]:
             answer.append(items[i + s]['answer'])
@@ -312,38 +296,9 @@ def get_test_ans():
 
 
 if __name__ == '__main__':
-    """
-    TF: question num:1071, question with answer1064, prefect_correct:491, MRR:0.6200992728238546
-    Bow: question num:1071, question with answer1064, prefect_correct:376, MRR:0.5296269550798569
-    BM25 + SVMRank: question num:1071, question with answer1064, prefect_correct:550, MRR:0.6524602350657909
-    BM25:  question num:5352, question with answer5319, prefect_correct:2783, MRR:0.6594948607696011
-    -- [8, 10]: BM25 + TF: question num:1071, question with answer1064, prefect_correct:566, MRR:0.6626076288570559
-    1  [0, 8, 10]: question num:1071, question with answer1064, prefect_correct:571, MRR:0.6672033276872427
-    1  [1, 8, 10]: question num:1071, question with answer1064, prefect_correct:580, MRR:0.6760457345092623
-    1  [2, 8, 10]: question num:1071, question with answer1064, prefect_correct:573, MRR:0.6696462509248209
-    -  [6, 8, 10]: question num:1071, question with answer1064, prefect_correct:566, MRR:0.6623672110525073
-    0  [9, 8, 10]: question num:1071, question with answer1064, prefect_correct:564, MRR:0.6606765867066795
-    0  [7, 8, 10]: question num:1071, question with answer1064, prefect_correct:563, MRR:0.6607581853759598
-    1  [5, 8, 10]: question num:1071, question with answer1064, prefect_correct:567, MRR:0.6702383345109053
-    1  [4, 8, 10]: question num:1071, question with answer1064, prefect_correct:566, MRR:0.6630578089290848
-    1  [3, 8, 10]: question num:1071, question with answer1064, prefect_correct:575, MRR:0.6726265375296776
-    1  [3, 4, 5, 8, 10]: question num:1071, question with answer1064, prefect_correct:575, MRR:0.6774593108601733
-    1  [3, 4, 5,6,8,10]: question num:1071, question with answer1064, prefect_correct:582, MRR:0.6815223646174593
-       [3, 4, 5,6,7,8,10]: question num:1071, question with answer1064, prefect_correct:580, MRR:0.6808120259425803
-    =  [0, 1, 2, 3, 4, 5, 6,8,10]: question num:1071, question with answer1064, prefect_correct:615, MRR:0.7118507347966923  1000
-    ALL: question num:1071, question with answer1064, prefect_correct:608, MRR:0.7071495565046418  1000
-    == ：[0, 1, 2, 3, 4, 5, 6,8,10]: question num:1071, question with answer1064, prefect_correct:618, MRR:0.7163615823193664 5000
-    ------------not remove stopwords---------
-    -- [8, 10]: BM25 + TF: question num:1071, question with answer1064, prefect_correct:500, MRR:0.622616494858178
-    [0, 1, 2, 3, 4, 5, 6,8,10]: question num:1071, question with answer1064, prefect_correct:604, MRR:0.7060185519102772  1000
-    ALL: question num:1071, question with answer1064, prefect_correct:605, MRR:0.7077294225814748
-    """
-    # gen_data()
-    # test()
-
     # build_feature()
-    # gen_data_feature()
+    # generate_svm_rank_data()
     # build_feature(False)
-    # gen_test_data()
+    # generate_svm_rank_data(False)
     calc_mrr()
     get_test_ans()
