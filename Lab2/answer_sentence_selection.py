@@ -1,10 +1,12 @@
+import json
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from gensim.summarization import bm25
 from scipy.linalg import norm
-import json
 from pyltp import Segmentor
 from preprocessed import cws_model_path, TRAIN_DATA, SEARCH_RESULT
-import numpy as np
+from utils import calculate_mrr
+
 
 RAW_PASSAGE_DATA = 'data/passages_multi_sentences.json'
 SEG_PASSAGE_DATA = 'data/seg_passages.json'
@@ -34,22 +36,22 @@ def build_feature(is_train=True):
     segmentor.load(cws_model_path)
     # 读取train json文件
     if is_train:
-        with open(TRAIN_DATA, 'r', encoding='utf-8') as fin:
-            questions = [json.loads(line.strip()) for line in fin.readlines()]
+        with open(TRAIN_DATA, 'r', encoding='utf-8') as f:
+            questions = [json.loads(line.strip()) for line in f.readlines()]
     else:
-        with open(SEARCH_RESULT, 'r', encoding='utf-8') as fin:
-            questions = [json.loads(line.strip()) for line in fin.readlines()]
+        with open(SEARCH_RESULT, 'r', encoding='utf-8') as f:
+            questions = [json.loads(line.strip()) for line in f.readlines()]
         questions.sort(key=lambda item_: item_['qid'])  # 按qid升序排序
     # 读入passage json文件
     passage = {}
-    with open(SEG_PASSAGE_DATA, encoding='utf-8') as fin:
-        for line in fin.readlines():
+    with open(SEG_PASSAGE_DATA, encoding='utf-8') as f:
+        for line in f.readlines():
             read = json.loads(line.strip())
             passage[read['pid']] = read['document']
     # 读入raw passage json文件
     passage_raw = {}
-    with open(RAW_PASSAGE_DATA, encoding='utf-8') as fin:
-        for line in fin.readlines():
+    with open(RAW_PASSAGE_DATA, encoding='utf-8') as f:
+        for line in f.readlines():
             read = json.loads(line.strip())
             passage_raw[read['pid']] = read['document']
 
@@ -198,75 +200,20 @@ def extract_feature(question, answer, cv, tv):
     return feature
 
 
-def calc_mrr():
-    """
-    计算开发集上的完美匹配率 mrr
-    :return:
-    """
-    # 读入排序结果
-    with open(SVM_RANK_TRAIN_RESULT, 'r', encoding='utf-8') as f:
-        predictions = np.array([float(line.strip()) for line in f.readlines()])
-    # print(len(predictions))
-    # 读入开发集文件
-    dev = []
-    with open(SVM_RANK_DEV_DATA, 'r', encoding='utf-8') as f:
-        i = 0
-        for line in f.readlines():
-            dev.append((i, int(line[0]), int(line.split(' ')[1].split(':')[1])))
-            i += 1
-    # print(len(dev))
-    # 统计并计算 MRR
-    old_pid = dev[0][2]
-    q_s = 0
-    question_num = 0
-    question_with_answer = 0
-    prefect_correct = 0
-    mrr = 0.0
-    for i in range(len(dev)):
-        if dev[i][2] != old_pid:
-            # print(i)
-            p = np.argsort(-predictions[q_s:i]) + q_s
-            for k in range(len(p)):
-                if dev[p[k]][1] == 1:
-                    question_with_answer += 1
-                    if k == 0:
-                        prefect_correct += 1
-                    mrr += 1.0 / float(k + 1)
-                    break
-            # print(p)
-            q_s = i
-            old_pid = dev[i][2]
-            question_num += 1
-    p = np.argsort(-predictions[q_s:]) + q_s
-    for k in range(len(p)):
-        if dev[p[k]][1] == 1:
-            question_with_answer += 1
-            if k == 0:
-                prefect_correct += 1
-            mrr += 1.0 / float(k + 1)
-            break
-    question_num += 1
-    print("question num:{}, question with answer{}, prefect_correct:{}, MRR:{}"
-          .format(question_num, question_with_answer, prefect_correct, mrr / question_num))
-
-
 def get_test_ans():
     """
     将SVM rank的结果转化为特征答案句
     :return:
     """
-    # 读入排序结果
     with open(SVM_RANK_TEST_RESULT, 'r', encoding='utf-8') as f:
         predictions = np.array([float(line.strip()) for line in f.readlines()])
     print(len(predictions))
-    # 读取sent json文件
     with open(TEST_SENTENCE, 'r', encoding='utf-8') as f:
         items = [json.loads(line.strip()) for line in f.readlines()]
     print(len(items))
     sent_qid = []
     for item in items:
         sent_qid.append(item['qid'])
-    # 读取test res json文件
     with open(SEARCH_RESULT, 'r', encoding='utf-8') as f:
         test_res = [json.loads(line.strip()) for line in f.readlines()]
     for res in test_res:
@@ -282,7 +229,6 @@ def get_test_ans():
         for i in p[0:3]:
             answer.append(items[i + s]['answer'])
         res['answer_sentence'] = answer
-    # 写回文件
     with open(TEST_RESULT, 'w', encoding='utf-8') as f:
         for sample in test_res:
             f.write(json.dumps(sample, ensure_ascii=False) + '\n')
@@ -316,5 +262,5 @@ if __name__ == '__main__':
     # build_feature(False)
     # generate_svm_rank_data(False)
 
-    calc_mrr()
+    calculate_mrr()
     get_test_ans()
