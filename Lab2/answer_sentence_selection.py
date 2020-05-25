@@ -22,6 +22,104 @@ SVM_RANK_TEST_RESULT = 'data/test_predictions'
 TEST_RESULT = 'data/test_answer_result.json'
 
 
+# noinspection PyArgumentList
+def build_feature(is_train=True):
+    """
+    从初始数据中抽取特征
+    :param is_train: 训练模式标记
+    :return: 将提取到的特征写入文件
+    """
+    print("Initializing Segmentor!")
+    segmentor = Segmentor()
+    segmentor.load(cws_model_path)
+    # 读取train json文件
+    if is_train:
+        with open(TRAIN_DATA, 'r', encoding='utf-8') as fin:
+            questions = [json.loads(line.strip()) for line in fin.readlines()]
+    else:
+        with open(SEARCH_RESULT, 'r', encoding='utf-8') as fin:
+            questions = [json.loads(line.strip()) for line in fin.readlines()]
+        questions.sort(key=lambda item_: item_['qid'])  # 按qid升序排序
+    # 读入passage json文件
+    passage = {}
+    with open(SEG_PASSAGE_DATA, encoding='utf-8') as fin:
+        for line in fin.readlines():
+            read = json.loads(line.strip())
+            passage[read['pid']] = read['document']
+    # 读入raw passage json文件
+    passage_raw = {}
+    with open(RAW_PASSAGE_DATA, encoding='utf-8') as fin:
+        for line in fin.readlines():
+            read = json.loads(line.strip())
+            passage_raw[read['pid']] = read['document']
+
+    # 建立特征矩阵
+    feature = []
+    ret = []
+
+    for k in range(len(questions)):
+        question = questions[k]
+        sents, corpus = [], []
+        if is_train:
+            cv = CountVectorizer(token_pattern=r"(?u)\b\w+\b")
+            cv.fit(passage[question['pid']])
+            tv = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b")
+            tv.fit(passage[question['pid']])
+            for sent in passage[question['pid']]:
+                corpus.append(sent.split())
+
+        else:
+            for pid in question['answer_pid']:
+                sents += passage[pid]
+                for sent in passage[pid]:
+                    corpus.append(sent.split())
+            if len(sents) == 0:  # 没有检索到文档
+                print("no answer pid: {}".format(question['qid']))
+                continue
+            cv = CountVectorizer(token_pattern=r"(?u)\b\w+\b")
+            cv.fit(sents)
+            tv = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b")
+            tv.fit(sents)
+
+        # 提取 BM25 特征
+        bm25_model = bm25.BM25(corpus)
+        q = list(segmentor.segment(question['question']))
+        scores = bm25_model.get_scores(q)
+
+        if is_train:
+            for i in range(len(passage[question['pid']])):
+                ans_sent = passage[question['pid']][i]
+                feature_array = extract_feature(q, ans_sent, cv, tv)
+                feature_array.append(scores[i])
+                feature.append(' '.join([str(attr) for attr in feature_array]) + '\n')
+                sen = {}
+                if passage_raw[question['pid']][i] in question['answer_sentence']:
+                    sen['label'] = 1
+                else:
+                    sen['label'] = 0
+                sen['qid'] = question['qid']
+                sen['question'] = question['question']
+                sen['answer'] = passage[question['pid']][i]
+                ret.append(sen)
+        else:
+            for i in range(len(sents)):
+                feature_array = extract_feature(q, sents[i], cv, tv)
+                feature_array.append(scores[i])
+                feature.append(' '.join([str(attr) for attr in feature_array]) + '\n')
+                sen = {'label': 0, 'qid': question['qid'], 'question': question['question'], 'answer': sents[i]}
+                ret.append(sen)
+    # 特征写入文件
+    feature_path = RAW_FEATURE if is_train else TEST_FEATURE
+    with open(feature_path, 'w', encoding='utf-8') as f:
+        f.writelines(feature)
+    # 句子写入文件
+    sentence_path = RAW_SENTENCE if is_train else TEST_SENTENCE
+    with open(sentence_path, 'w', encoding='utf-8') as f:
+        for sample in ret:
+            f.write(json.dumps(sample, ensure_ascii=False) + '\n')
+    segmentor.release()
+
+
 def generate_svm_rank_data(is_train=True):
     """
     为SVM Rank生成训练和测试数据
@@ -71,107 +169,12 @@ def generate_svm_rank_data(is_train=True):
             f.writelines(data)
 
 
-# noinspection PyArgumentList
-def build_feature(is_train=True):
-    """
-
-    :param is_train:
-    :return:
-    """
-    print("Initializing Segmentor!")
-    segmentor = Segmentor()
-    segmentor.load(cws_model_path)
-    # 读取train json文件
-    if is_train:
-        with open(TRAIN_DATA, 'r', encoding='utf-8') as fin:
-            items = [json.loads(line.strip()) for line in fin.readlines()]
-    else:
-        with open(SEARCH_RESULT, 'r', encoding='utf-8') as fin:
-            items = [json.loads(line.strip()) for line in fin.readlines()]
-        items.sort(key=lambda item_: item_['qid'])  # 按qid升序排序
-    # 读入passage json文件
-    passage = {}
-    with open(SEG_PASSAGE_DATA, encoding='utf-8') as fin:
-        for line in fin.readlines():
-            read = json.loads(line.strip())
-            passage[read['pid']] = read['document']
-    # 读入raw passage json文件
-    passage_raw = {}
-    with open(RAW_PASSAGE_DATA, encoding='utf-8') as fin:
-        for line in fin.readlines():
-            read = json.loads(line.strip())
-            passage_raw[read['pid']] = read['document']
-
-    # 建立特征矩阵
-    feature = []
-    sents_json = []
-
-    for k in range(len(items)):
-        item = items[k]
-        sents, corpus = [], []
-        if is_train:
-            cv = CountVectorizer(token_pattern=r"(?u)\b\w+\b")
-            cv.fit(passage[item['pid']])
-            tv = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b")
-            tv.fit(passage[item['pid']])
-            for sent in passage[item['pid']]:
-                corpus.append(sent.split())
-
-        else:
-            for pid in item['answer_pid']:
-                sents += passage[pid]
-                for sent in passage[pid]:
-                    corpus.append(sent.split())
-            if len(sents) == 0:  # 没有检索到文档
-                print("no answer pid: {}".format(item['qid']))
-                continue
-            cv = CountVectorizer(token_pattern=r"(?u)\b\w+\b")
-            cv.fit(sents)
-            tv = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b")
-            tv.fit(sents)
-
-        # 提取 BM25 特征
-        bm25_model = bm25.BM25(corpus)
-        question = list(segmentor.segment(item['question']))
-        scores = bm25_model.get_scores(question)
-
-        if is_train:
-            for i in range(len(passage[item['pid']])):
-                ans_sent = passage[item['pid']][i]
-                feature_array = extract_feature(question, ans_sent, cv, tv)
-                feature_array.append(scores[i])
-                feature.append(' '.join([str(attr) for attr in feature_array]) + '\n')
-                sen = {}
-                if passage_raw[item['pid']][i] in item['answer_sentence']:
-                    sen['label'] = 1
-                else:
-                    sen['label'] = 0
-                sen['qid'] = item['qid']
-                sen['question'] = item['question']
-                sen['answer'] = passage[item['pid']][i]
-                sents_json.append(sen)
-        else:
-            for i in range(len(sents)):
-                feature_array = extract_feature(question, sents[i], cv, tv)
-                feature_array.append(scores[i])
-                feature.append(' '.join([str(attr) for attr in feature_array]) + '\n')
-                sen = {'label': 0, 'qid': item['qid'], 'question': item['question'], 'answer': sents[i]}
-                sents_json.append(sen)
-    # 特征写入文件
-    feature_path = RAW_FEATURE if is_train else TEST_FEATURE
-    with open(feature_path, 'w', encoding='utf-8') as f:
-        f.writelines(feature)
-    # 句子写入文件
-    sentence_path = RAW_SENTENCE if is_train else TEST_SENTENCE
-    with open(sentence_path, 'w', encoding='utf-8') as fout:
-        for sample in sents_json:
-            fout.write(json.dumps(sample, ensure_ascii=False) + '\n')
-    segmentor.release()
-
-
 def extract_feature(question, answer, cv, tv):
     """
     抽取句子的特征
+    答案句特征：答案句长度；是否含冒号
+    答案句和问句之间的特征：问句和答案句词数差异；uni-gram词共现比例；字符共现比例；
+                        词频cv向量相似度；tf-idf向量相似度；bm25相似度
     :param question: 问题
     :param answer: 答案
     :param cv: Count Vector
@@ -181,21 +184,14 @@ def extract_feature(question, answer, cv, tv):
     feature = []
     answer_words = answer.split(' ')
     len_answer, len_question = len(answer_words), len(question)
-    # 特征1:答案句词数
     feature.append(len_answer)
-    # 特征2:是否含冒号
     feature.append(1) if '：' in answer else feature.append(0)
-    # 特征3:问句和答案句词数差异
     feature.append(abs(len_question - len_answer))
-    # 特征4:uni-gram词共现比例：答案句和问句中出现的相同词占问句总词数的比例, 该特征反应了两个句子在文本上的一致程度。
     feature.append(len(set(question) & set(answer_words)) / float(len(set(question))))
-    # 特征5:字符共现比例:答案句和问句中出现的相同字符占问句的比例
     feature.append(len(set(question) & set(''.join(answer_words))) / float(len(set(question))))
-    # 特征6：one hot 余弦相似度
     vectors = cv.transform([' '.join(question), answer]).toarray()
     cosine_similar = np.dot(vectors[0], vectors[1]) / (norm(vectors[0]) * norm(vectors[1]))
     feature.append(cosine_similar if not np.isnan(cosine_similar) else 0.0)
-    # 特征7：tf-idf 相似度
     vectors = tv.transform([' '.join(question), answer]).toarray()
     tf_sim = np.dot(vectors[0], vectors[1]) / (norm(vectors[0]) * norm(vectors[1]))
     feature.append(tf_sim if not np.isnan(tf_sim) else 0)
