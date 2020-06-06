@@ -1,10 +1,14 @@
+# -*- coding: UTF8 -*-
+
 import os
 import sys
-from PyQt5.QtCore import Qt
+from time import time
+
+from utils import Search
 from PyQt5.QtWidgets import *
 
-data_header = ['选择', '主题', 'url', '附件数', '权限要求']
-file_header = ['选择', '文件名', '所属主题', '权限要求']
+page_header = ['新闻标题', '附件数', '权限要求']
+file_header = ['文件名', '所属新闻标题', '权限要求']
 authority = ['角色 1', '角色 2', '角色 3', '角色 4']
 
 DIR_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -12,161 +16,123 @@ ATTACHMENT_PATH = os.path.join(DIR_PATH, 'data', 'attachment')
 
 
 class Retrieval(QWidget):
-    def __init__(self, table, retriever):
+    def __init__(self, table, search, mode):
         super().__init__()
+        self.mode = mode
         self.setWindowTitle('实验三-企业检索系统')
         self.search_button = QPushButton('查询')
-        self.input_box = QLineEdit(self)  # 查询输入框
+        # 查询输入框
+        self.input_box = QLineEdit(self)
+        # 查询条数和时间显示
         self.search_result_label = QLabel(self)
+        # 角色选择
         self.combo = QComboBox()
+        # 查询结果表
         self.table = table
-
         self._setup()
-
+        # 查询结果
         self.lines = []
-        self.check_box = []
-        self.retriever = retriever
+        self.search = search
         self.show()
 
     def _setup(self):
         # set layout
-        hbox1 = QHBoxLayout()
-        hbox1.addWidget(self.combo)
-        hbox1.addWidget(self.input_box)
-        hbox1.addWidget(self.search_button)
-        hbox2 = QHBoxLayout()
-        hbox2.addWidget(self.table)
-        vbox = QVBoxLayout()
-        vbox.addLayout(hbox1)
-        vbox.addWidget(self.search_result_label)
-        vbox.addLayout(hbox2)
-        self.setLayout(vbox)
-        # set listener
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(self.combo)
+        search_layout.addWidget(self.input_box)
+        search_layout.addWidget(self.search_button)
+        window_layout = QVBoxLayout()
+        window_layout.addLayout(search_layout)
+        window_layout.addWidget(self.search_result_label)
+        window_layout.addWidget(self.table)
+        self.setLayout(window_layout)
+        # 设定查询按钮
         self.search_button.clicked.connect(self._search)
-        # self.open_button.clicked.connect(self._open)
-        # set combo
+        # 设定角色
         self.combo.addItems(authority)
+        # 设定双击打开文章
+        self.table.itemDoubleClicked.connect(self._open)
 
     def _get_role(self):
         role = self.combo.currentText()
         return int(role[-1])
 
     def _search(self):
-        pass
-
-    def _open(self):
-        pass
-
-
-class DataTab(Retrieval):
-    def __init__(self, table, retriever):
-        super().__init__(table, retriever)
-
-    def _search(self):
         query = self.input_box.text()
-        self.check_box = []
         self.table.clear()
-        self.table.setHorizontalHeaderLabels(data_header)
-        self.lines = self.retriever.search_data(query, self._get_role())
+        if self.mode == 'page':
+            self.table.setHorizontalHeaderLabels(page_header)
+        else:
+            self.table.setHorizontalHeaderLabels(file_header)
+        # 按照新闻标题进行自动扩展
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        if self.mode == 'file':
+            self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        # 只能单选
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        # 只能选取行
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        # 禁止点击表头
+        self.table.horizontalHeader().setSectionsClickable(False)
+        # 禁止修改表格内容
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        # 查询计时
+        start_time = time()
+        self.lines = self.search.search(query, self._get_role(), self.mode)
+        end_time = time()
         self.table.setRowCount(len(self.lines))
-        self.search_result_label.setText('找到 %d 条结果' % len(self.lines))
+        self.search_result_label.setText('找到 {:d} 条结果, 耗时 {:.6f}s'.format(len(self.lines), end_time - start_time))
+        if self.mode == 'page':
+            for row, data in enumerate(self.lines):
+                self.table.setItem(row, 0, QTableWidgetItem(data['title']))
+                self.table.setItem(row, 1, QTableWidgetItem(str(len(data['file_name']))))
+                self.table.setItem(row, 2, QTableWidgetItem('至少角色{:d}'.format(data['authority'])))
+        else:
+            for row, file in enumerate(self.lines):
+                self.table.setItem(row, 0, QTableWidgetItem(file[0]))
+                self.table.setItem(row, 1, QTableWidgetItem(file[1]))
+                self.table.setItem(row, 2, QTableWidgetItem('至少角色{:d}'.format(file[2])))
 
-        for row, data in enumerate(self.lines):
-            ck = QCheckBox()
-            self.check_box.append(ck)
-            hbox = QHBoxLayout()
-            hbox.setAlignment(Qt.AlignCenter)
-            hbox.addWidget(ck)
-            w = QWidget()
-            w.setLayout(hbox)
-
-            # '选择', '主题', 'url', '附件数', '权限要求'
-            self.table.setCellWidget(row, 0, w)
-            self.table.setItem(row, 1, QTableWidgetItem(data['title']))
-            self.table.setItem(row, 2, QTableWidgetItem(data['url']))
-            self.table.setItem(row, 3, QTableWidgetItem(str(len(data['file_name']))))
-            self.table.setItem(row, 4, QTableWidgetItem('>= %d' % data['level']))
-
-    def _open(self):
-        choosed_data = [self.lines[i] for i, ck in enumerate(self.check_box) if ck.isChecked()]
-        for data in choosed_data:
-            QMessageBox.about(self, data['title'], 'title : %s\n\n'
-                                                   'url : %s\n\n'
-                                                   'parapraghs : %s\n\n'
-                                                   'file_name : %s\n\n'
-                                                   'privilege level : %d\n\n'
-                              % (data['title'], data['url'], data['paragraphs'], str(data['file_name']), data['level']))
-
-        for ck in self.check_box:
-            ck.setChecked(False)
-
-
-class FileTab(Retrieval):
-    def __init__(self, table, retriever):
-        super().__init__(table, retriever)
-
-    def _search(self):
-        query = self.input_box.text()
-        self.check_box = []
-        self.table.clear()
-        self.table.setHorizontalHeaderLabels(file_header)
-        self.lines = self.retriever.search_file(query, self._get_role())
-        self.table.setRowCount(len(self.lines))
-        self.search_result_label.setText('找到 %d 条结果' % len(self.lines))
-
-        for row, file in enumerate(self.lines):
-            ck = QCheckBox()
-            self.check_box.append(ck)
-            hbox = QHBoxLayout()
-            hbox.setAlignment(Qt.AlignCenter)
-            hbox.addWidget(ck)
-            w = QWidget()
-            w.setLayout(hbox)
-
-            # '选择', '文件名', '所属主题', '权限要求'
-            self.table.setCellWidget(row, 0, w)
-            self.table.setItem(row, 1, QTableWidgetItem(file[0]))
-            self.table.setItem(row, 2, QTableWidgetItem(file[1]))
-            self.table.setItem(row, 3, QTableWidgetItem('>= %d' % file[2]))
-
-    def _open(self):
-        choosed_data = [self.lines[i][:2] for i, ck in enumerate(self.check_box) if ck.isChecked()]
-        for file, title in choosed_data:
-            path = os.path.join(ATTACHMENT_PATH, title, file + '.jpg')
-            if not os.path.exists(path):
-                QMessageBox.warning(self, '找不到文件', '不存在路径 ' + path, QMessageBox.Ok)
-            else:
-                pass
-                # Image.open(path).show()
-
-        for ck in self.check_box:
-            ck.setChecked(False)
+    def _open(self, item):
+        if self.mode == 'page':
+            pos = item.row()
+            print("double clicked " + str(pos))
+            data = self.lines[pos]
+            QMessageBox.about(self, data['title'], 'title : {:s}\n\nurl : {:s}\n\nparagraphs : {:s}\n\n'
+                                                   'file_name : {:s}\n\n'
+                                                   'authority : 角色{:d}\n\n'
+                              .format(data['title'], data['url'], data['paragraphs'],
+                                      str(data['file_name']), data['authority']))
+        else:
+            pos = item.row()
+            print("double clicked " + str(pos))
+            data = self.lines[pos]
+            path:str = data[0]
+            # 使用 utf-8 操控 Windows cmd
+            os.system('chcp 65001')
+            os.system('start '+path)
 
 
 class RetrievalSystem(QTabWidget):
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-    #     self.initUI()
-    #
-    # def initUI(self):
-        self.setWindowTitle('企业检索系统')
+    def __init__(self):
+        super(RetrievalSystem, self).__init__()
+        self.setWindowTitle('实验三-企业检索系统')
 
-        self.resize(600, 800)
+        self.resize(1280, 720)
 
         table1 = QTableWidget(self)
-        table1.setColumnCount(5)
-        table1.setHorizontalHeaderLabels(data_header)
+        table1.setColumnCount(3)
+        table1.setHorizontalHeaderLabels(page_header)
 
         table2 = QTableWidget(self)
-        table2.setColumnCount(4)
+        table2.setColumnCount(3)
         table2.setHorizontalHeaderLabels(file_header)
 
-        # retriever = Retriever()
-
-        self.tab1 = DataTab(table1, None)
-        self.tab2 = FileTab(table2, None)
-        self.addTab(self.tab1, "数据检索")
+        search = Search()
+        self.tab1 = Retrieval(table1, search, 'page')
+        self.tab2 = Retrieval(table2, search, 'file')
+        self.addTab(self.tab1, "页面检索")
         self.addTab(self.tab2, "文档检索")
         self.show()
 
@@ -175,28 +141,3 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     ex = RetrievalSystem()
     sys.exit(app.exec_())
-
-# class RetrievalSystem(QTableWidget):
-#
-#     def __init__(self):
-#         super(RetrievalSystem, self).__init__()
-#         self.initUI()
-#
-#     def initUI(self):
-#         self.setWindowTitle("实验三-企业检索系统")
-#         self.resize(800, 600)
-#         web_tab = QTableWidget(self)
-#         web_tab.setColumnCount(5)
-#         web_tab.setHorizontalHeaderLabels(data_header)
-#
-#         file_tab = QTableWidget(self)
-#         file_tab.setColumnCount(4)
-#         file_tab.setHorizontalHeaderLabels(file_header)
-#         self.addTab()
-#         self.show()
-#
-#
-# if __name__ == '__main__':
-#     window = QApplication(sys.argv)
-#     w = RetrievalSystem()
-#     sys.exit(window.exec_())
