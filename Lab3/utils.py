@@ -108,11 +108,11 @@ class Search:
                           zip(page['segmented_file_name'], page['segmented_file_contents'])]
 
         docs_page = [page['segmented_title'] + page['segmented_paragraphs'] for page in self.pages]
-        self.bm25_page = BM25(docs_page)
+        self.bm25_page = BM25(docs_page, BM25_PAGE_DIR)
         self.bm25_page.save(BM25_PAGE_DIR)
         self.index_page = InvertedIndex(docs_page)
 
-        self.bm25_file = BM25(docs_file)
+        self.bm25_file = BM25(docs_file, BM25_FILE_DIR)
         self.bm25_file.save(BM25_FILE_DIR)
         self.index_file = InvertedIndex(docs_file)
 
