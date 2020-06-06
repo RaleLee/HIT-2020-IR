@@ -11,9 +11,6 @@ page_header = ['新闻标题', '附件数', '权限要求']
 file_header = ['文件名', '所属新闻标题', '权限要求']
 authority = ['角色 1', '角色 2', '角色 3', '角色 4']
 
-DIR_PATH = os.path.dirname(os.path.abspath(__file__))
-ATTACHMENT_PATH = os.path.join(DIR_PATH, 'data', 'attachment')
-
 
 class Retrieval(QWidget):
     def __init__(self, table, search, mode):
@@ -47,17 +44,17 @@ class Retrieval(QWidget):
         window_layout.addWidget(self.table)
         self.setLayout(window_layout)
         # 设定查询按钮
-        self.search_button.clicked.connect(self._search)
+        self.search_button.clicked.connect(self.__search)
         # 设定角色
         self.combo.addItems(authority)
         # 设定双击打开文章
-        self.table.itemDoubleClicked.connect(self._open)
+        self.table.itemDoubleClicked.connect(self.__open)
 
-    def _get_role(self):
+    def get_role(self):
         role = self.combo.currentText()
         return int(role[-1])
 
-    def _search(self):
+    def __search(self):
         query = self.input_box.text()
         self.table.clear()
         if self.mode == 'page':
@@ -78,7 +75,7 @@ class Retrieval(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         # 查询计时
         start_time = time()
-        self.lines = self.search.search(query, self._get_role(), self.mode)
+        self.lines = self.search.search(query, self.get_role(), self.mode)
         end_time = time()
         self.table.setRowCount(len(self.lines))
         self.search_result_label.setText('找到 {:d} 条结果, 耗时 {:.6f}s'.format(len(self.lines), end_time - start_time))
@@ -93,7 +90,7 @@ class Retrieval(QWidget):
                 self.table.setItem(row, 1, QTableWidgetItem(file[1]))
                 self.table.setItem(row, 2, QTableWidgetItem('至少角色{:d}'.format(file[2])))
 
-    def _open(self, item):
+    def __open(self, item):
         if self.mode == 'page':
             pos = item.row()
             print("double clicked " + str(pos))
