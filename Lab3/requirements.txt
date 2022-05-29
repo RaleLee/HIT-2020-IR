@@ -1,5 +1,5 @@
 python_docx==0.8.10
 numpy==1.17.3
-pywin32==227
+pywin32==301
 pyltp==0.2.1
 PyQt5==5.15.0
